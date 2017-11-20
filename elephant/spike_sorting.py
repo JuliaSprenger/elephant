@@ -15,7 +15,7 @@ import os.path
 from os import linesep as sep
 from elephant.spike_train_generation import (spike_extraction,
                                              waveform_extraction)
-from hashlib import blake2b
+from hashlib import sha1 as hlhash
 
 # Recommended spike sort version is 'dev' branch.
 # The SpikeSort/src folder needs to be added to the PYTHONPATH,
@@ -956,7 +956,7 @@ class SpikeSorter(object):
                 return tuple([_make_hash(e) for e in o])
 
             elif isinstance(o, pq.Quantity):
-                h = blake2b(digest_size=10)
+                h = hlhash()
                 h.update(str(o).encode())
                 return h.hexdigest()
 
@@ -965,7 +965,7 @@ class SpikeSorter(object):
                 for k, v in new_o.items():
                     new_o[k] = _make_hash(v)
                 ordered_obj = collections.OrderedDict(sorted(new_o.items()))
-                h = blake2b(digest_size=10)
+                h = hlhash()
                 h.update(str(ordered_obj).encode())
                 return h.hexdigest()
             # set hash of None explicitly since differs between python
@@ -973,7 +973,7 @@ class SpikeSorter(object):
             elif o is None:
                 return -1
             else:
-                h = blake2b(digest_size=10)
+                h = hlhash()
                 h.update(str(o).encode())
                 return h.hexdigest()
 
@@ -1134,6 +1134,8 @@ class SpikeExtractor(SpikeSorter):
 
         self._add_to_segment(anasig, spiketrains)
 
+        # TODO: This only works for a single trace in anasig. Extend also to
+        # multiple traces.
         channel_id = self._get_channel_id(anasig)
         unit = self._get_unit(anasig.segment.block, channel_id, unit_id=0)
         unit.annotate(sorted=False,
@@ -1257,6 +1259,8 @@ class KMeansSorter(SpikeSorter):
         # sorting by size of clusters
         cluster_ids = sorted(cluster_ids, key=cluster_ids.get, reverse=True)
 
+        units, sts = [], []
+
         for unit_id, cluster_id in enumerate(cluster_ids):
             mask = np.where(labels == cluster_id)[0]
             new_times = spiketrain.times[mask]
@@ -1277,7 +1281,12 @@ class KMeansSorter(SpikeSorter):
             unit.spiketrains.append(sorted_st)
             sorted_st.unit = unit
 
+            units.append(unit)
+            sts.append(sorted_st)
+
         spiketrain.segment.block.create_relationship()
+
+        return units, sts
 
     def sort_segment(self, segment):
         for st in copy.copy(segment.spiketrains):
